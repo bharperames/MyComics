@@ -65,7 +65,7 @@ footer { text-align: center; font-size: 14px; color: var(--note); padding: 0 16p
 <script>
 // A Home Screen icon keeps its own saved copy of this page and may never ask for a new one. On opening, ask
 // for version.txt past every cache; when a newer snapshot is published, load it at an address no saved copy has.
-const VERSION = '20261122182550';
+const VERSION = '20261122182752';
 fetch('version.txt?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : VERSION).then(v => {
   v = v.trim();
   if (v && v > VERSION && new URLSearchParams(location.search).get('v') !== v) location.replace(`./?v=${v}${location.hash}`);
@@ -94,20 +94,47 @@ function card(b) {
   return d;
 }
 const cards = new Map(BOOKS.map(b => [b, card(b)]));
+let shown = BOOKS, at = -1;          // the list on screen, and which of it the viewer shows
 // Tapping a cover opens it here. It closes with the ✕, a tap on it, Esc, or Back (which closes it rather than
-// leaving the page: opening pushes a history entry, closing pops it).
+// leaving the page: opening pushes one history entry, closing pops it; moving between covers adds none).
 const view = document.getElementById('view'), vimg = document.getElementById('view-img'), vcap = document.getElementById('view-cap');
+function draw() {
+  const b = shown[at];
+  vimg.src = `f/${b.id}.jpg`; vimg.alt = `${b.t}, Book ID #${b.id}`;
+  vcap.textContent = `${b.t} · Book ID #${b.id}` + (shown.length > 1 ? ` · ${at + 1} of ${shown.length}` : '');
+  for (const k of [at - 1, at + 1]) if (shown[k]) new Image().src = `f/${shown[k].id}.jpg`;   // the neighbors, ready for a swipe
+}
 function openView(b) {
-  vimg.src = `f/${b.id}.jpg`; vimg.alt = `${b.t}, Book ID #${b.id}`; vcap.textContent = `${b.t} · Book ID #${b.id}`;
+  at = shown.indexOf(b); if (at < 0) { shown = [b]; at = 0; }
+  draw();
   view.hidden = false; document.body.style.overflow = 'hidden';
   try { history.pushState({ view: b.id }, ''); } catch (e) {}
   document.getElementById('view-x').focus();
 }
+// Next (+1) or previous (-1) cover of the list on screen; stops at either end.
+function step(d) {
+  if (view.hidden || !shown[at + d]) return;
+  at += d; draw();
+  vimg.animate([{ opacity: 0, transform: `translateX(${d * 40}px)` }, { opacity: 1, transform: 'none' }], { duration: 220, easing: 'ease-out' });
+}
+// Swipe left for the next cover, right for the previous. Not while zoomed in (a drag then pans), and a swipe
+// is not also the tap that closes the viewer.
+let touch = null, swiped = false;
+view.addEventListener('touchstart', e => { touch = e.touches.length === 1 ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : null; }, { passive: true });
+view.addEventListener('touchend', e => {
+  if (!touch || (window.visualViewport && visualViewport.scale > 1.05)) { touch = null; return; }
+  const t = e.changedTouches[0], dx = t.clientX - touch.x, dy = t.clientY - touch.y;
+  touch = null;
+  if (Math.abs(dx) > 50 && Math.abs(dx) > 1.5 * Math.abs(dy)) { swiped = true; step(dx < 0 ? 1 : -1); setTimeout(() => { swiped = false; }, 400); }
+}, { passive: true });
 function shut() { view.hidden = true; vimg.removeAttribute('src'); document.body.style.overflow = ''; }
 function closeView() { if (view.hidden) return; if (history.state && history.state.view) history.back(); else shut(); }
 addEventListener('popstate', () => { if (!view.hidden) shut(); });
-view.addEventListener('click', closeView);
-addEventListener('keydown', e => { if (e.key === 'Escape') closeView(); });
+view.addEventListener('click', e => { if (!swiped || e.target.id === 'view-x') closeView(); });
+addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeView();
+  else if (!view.hidden && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) { e.preventDefault(); step(e.key === 'ArrowRight' ? 1 : -1); }
+});
 list.addEventListener('click', e => {
   const a = e.target.closest('a[href^="f/"]');
   if (!a) return;
@@ -124,6 +151,7 @@ function show() {
   const inSeries = (b, [x, closed]) => closed ? b.series.has(x) : [...b.series].some(s => s.startsWith(x));
   const pick = sel.value;
   const hits = BOOKS.filter(b => (!pick || b.series.has(pick)) && phrases.every(x => inSeries(b, x)) && words.every(w => fits(b, w)));
+  shown = hits;
   list.replaceChildren(...hits.map(b => cards.get(b)));
   if (!hits.length) list.innerHTML = '<p class="empty">No comics match.</p>';
   count.textContent = q.value.trim() || pick ? `${hits.length} of ${BOOKS.length} comics` : `${BOOKS.length} comics`;
