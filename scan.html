@@ -47,8 +47,7 @@ video { width: 100%; height: 100%; object-fit: cover; display: block; background
 .val { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; margin-top: 8px; }
 .val span { background: var(--well); border-radius: 6px; padding: 2px 6px; font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text); }
 .val small { display: block; font-size: 12px; font-weight: 600; color: var(--note); text-transform: uppercase; letter-spacing: .04em; }
-.val.none, .valfrom { font-size: 13px; color: var(--note); margin-top: 6px; }
-.valfrom { margin-top: 2px; }
+.val.none { font-size: 13px; color: var(--note); margin-top: 6px; }
 .alts-h { font-size: 15px; font-weight: 700; margin: 16px 0 8px; }
 .alts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .alt { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 5px; font: inherit; color: var(--text); text-align: left; cursor: pointer; }
@@ -170,11 +169,10 @@ function ownLine(it) {
   return `<span class="own miss">${it.miss ? 'Missing from your collection' : "You don't have it"}</span>`;
 }
 // The issue's low / mid / high grade value (Key Collector's, else the median of copies sold in that grade range).
-const money = v => v == null ? '—' : '$' + (v >= 1000 ? Math.round(v).toLocaleString() : (Number.isInteger(v) ? v : v.toFixed(2)));
+const money = v => v == null ? '—' : v < 1 ? 'under $1' : '$' + Math.round(v).toLocaleString();      // whole dollars
 function valueLine(it) {
   if (!it.v) return '<div class="val none">No value yet</div>';
-  return `<div class="val"><span><small>Low</small>${money(it.v[0])}</span><span><small>Mid</small>${money(it.v[1])}</span><span><small>High</small>${money(it.v[2])}</span></div>
-    <div class="valfrom">${it.vf === 'sales' ? 'From sales' : it.vf === 'Key Collector' ? 'Key Collector' : 'Key Collector & sales'}</div>`;
+  return `<div class="val"><span><small>Low</small>${money(it.v[0])}</span><span><small>Mid</small>${money(it.v[1])}</span><span><small>High</small>${money(it.v[2])}</span></div>`;
 }
 function result({ order, tier }) {
   const KICK = { sure: 'Match', likely: 'Likely: check the others below', unknown: 'Not recognized: probably not in the catalog. Closest:' };
