@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="robots" content="noindex">
+<title>Scan a comic</title>
+<style>
+/* Every text pair clears 7:1 in both themes. The camera view is dark in both. */
+:root { --bg: #f4f1ea; --surface: #fffdf8; --text: #1d1b18; --note: #45413a; --border: #ddd7ca; --well: #e8e3d8;
+  --accent: #174a8c; --ok: #185c2d; --on-ok: #ffffff; color-scheme: light; }
+@media (prefers-color-scheme: dark) { :root { --bg: #111316; --surface: #1a1d22; --text: #ece8e1; --note: #c4beb3; --border: #33373f;
+  --well: #25282e; --accent: #9cc3ff; --ok: #185c2d; --on-ok: #ffffff; color-scheme: dark; } }
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: #000; color: #fff; font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; -webkit-text-size-adjust: 100%; }
+.cam { position: fixed; inset: 0; }
+video { width: 100%; height: 100%; object-fit: cover; display: block; background: #000; }
+/* The guide box: what is scanned. Everything outside it is dimmed. */
+.box { position: absolute; left: 50%; top: 44%; transform: translate(-50%, -50%); width: min(74vw, 58vh * 0.68); aspect-ratio: 0.68;
+  border: 3px solid #fff; border-radius: 10px; box-shadow: 0 0 0 100vmax rgba(0, 0, 0, .55); pointer-events: none; }
+.hint { position: absolute; left: 0; right: 0; top: calc(10px + env(safe-area-inset-top)); text-align: center; font-size: 16px; font-weight: 600; padding: 0 70px; }
+.top { position: absolute; top: calc(8px + env(safe-area-inset-top)); left: 12px; }
+.top a { color: #fff; font-weight: 700; font-size: 16px; display: inline-block; padding: 8px 12px; border-radius: 10px; background: rgba(0, 0, 0, .6); text-decoration: none; }
+.bar { position: absolute; left: 0; right: 0; bottom: calc(16px + env(safe-area-inset-bottom)); display: flex; justify-content: center; align-items: center; gap: 18px; }
+.shoot { width: 76px; height: 76px; border-radius: 50%; border: 5px solid #fff; background: rgba(255, 255, 255, .25); color: #fff; font: 700 15px/1 -apple-system, sans-serif; }
+.shoot:disabled { opacity: .5; }
+.pick { color: #fff; font-weight: 600; font-size: 15px; padding: 10px 12px; border-radius: 10px; background: rgba(0, 0, 0, .6); border: 1px solid #fff; }
+.pick input { display: none; }
+.status { position: absolute; left: 16px; right: 16px; bottom: calc(110px + env(safe-area-inset-bottom)); text-align: center; font-size: 15px; font-weight: 600; text-shadow: 0 1px 3px #000; }
+/* The result: a sheet over the camera. */
+.sheet { position: fixed; left: 0; right: 0; bottom: 0; max-height: 82vh; overflow-y: auto; background: var(--bg); color: var(--text);
+  border-radius: 16px 16px 0 0; padding: 14px 16px calc(18px + env(safe-area-inset-bottom)); box-shadow: 0 -4px 24px rgba(0, 0, 0, .5); }
+.sheet[hidden] { display: none; }
+.best { display: grid; grid-template-columns: 112px 1fr; gap: 14px; align-items: start; }
+.best img, .best .none, .alt img, .alt .none { width: 100%; aspect-ratio: 3 / 4; object-fit: contain; background: var(--well); border-radius: 6px; display: block; }
+.none { display: flex; align-items: center; justify-content: center; font-size: 13px; text-align: center; padding: 4px; color: var(--text); }
+.kicker { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--note); }
+.kicker.sure { color: var(--text); }
+.kicker.unknown { text-transform: none; letter-spacing: 0; font-size: 14px; color: var(--text); }
+.title { font-size: 22px; font-weight: 800; line-height: 1.2; margin: 2px 0 4px; overflow-wrap: anywhere; }
+.meta { font-size: 15px; color: var(--note); }
+.own { display: inline-block; margin-top: 8px; padding: 4px 10px; border-radius: 8px; font-weight: 700; font-size: 16px; }
+.own.have { background: var(--ok); color: var(--on-ok); }
+.own.miss { background: var(--well); color: var(--text); border: 1px dashed var(--note); }
+.alts-h { font-size: 15px; font-weight: 700; margin: 16px 0 8px; }
+.alts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.alt { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 5px; font: inherit; color: var(--text); text-align: left; cursor: pointer; }
+.alt b { display: block; font-size: 13px; line-height: 1.25; margin-top: 4px; overflow-wrap: anywhere; }
+.alt span { display: block; font-size: 12px; color: var(--note); }
+.again { display: block; width: 100%; margin-top: 16px; padding: 12px; border-radius: 10px; border: 0; background: var(--accent); color: var(--bg); font: 700 17px -apple-system, sans-serif; }
+.err { color: var(--text); }
+</style>
+</head>
+<body>
+<div class="cam"><video id="video" playsinline muted autoplay></video><div class="box" id="box"></div></div>
+<div class="top"><a href="./">‹ List</a></div>
+<div class="hint">Fill the box with the cover, then tap Scan</div>
+<div class="status" id="status" role="status">Getting ready…</div>
+<div class="bar">
+  <label class="pick">Choose a photo<input type="file" id="file" accept="image/*"></label>
+  <button class="shoot" id="shoot" type="button" disabled>Scan</button>
+</div>
+<div class="sheet" id="sheet" hidden role="dialog" aria-label="Scan result"></div>
+<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/ort.min.js"></script>
+<script>
+// Scan a comic: the phone names the issue from the camera, on its own (no server). The two models (DINOv2-small
+// and SigLIP-base's vision tower, the builds studies/phone_onnx.py measured) come from Hugging Face once and are kept
+// in this phone's cache; scan/ holds every cover of the runs I collect, embedded here with the same builds.
+const $ = id => document.getElementById(id), status = t => { $('status').textContent = t; };
+ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/';
+let DATA, VEC, sessions = {}, rows;
+async function cached(url, label) {
+  // The model file from this phone's cache, else downloaded once (with progress) and kept.
+  let cache = null;
+  try { cache = await caches.open('mycomics-models-v1'); const hit = await cache.match(url); if (hit) return await hit.arrayBuffer(); } catch (e) {}
+  const r = await fetch(url); if (!r.ok) throw new Error(`${label}: HTTP ${r.status}`);
+  const total = Number(r.headers.get('content-length')) || 0, reader = r.body.getReader(), parts = []; let got = 0;
+  for (;;) { const { done, value } = await reader.read(); if (done) break; parts.push(value); got += value.length;
+    if (total) status(`Downloading ${label} (first time only): ${Math.round(100 * got / total)}%`); }
+  const buf = await new Blob(parts).arrayBuffer();
+  try { if (cache) await cache.put(url, new Response(buf.slice(0))); } catch (e) {}
+  return buf;
+}
+async function ready() {
+  const v = new URLSearchParams(location.search).get('v') || '';
+  DATA = await (await fetch('scan/data.json?v=' + v)).json();
+  VEC = new Int8Array(await (await fetch('scan/vectors.bin?v=' + v)).arrayBuffer());
+  rows = DATA.covers.length;
+  for (const [model, label] of [['dino', 'the first model'], ['siglip', 'the second model']])
+    sessions[model] = await ort.InferenceSession.create(await cached(DATA.builds[model], label), { executionProviders: ['wasm'] });
+}
+// The models' input: the scanned area letterboxed onto a gray square, scaled to 0-1 and normalized, as measured.
+function input(src, sx, sy, sw, sh, model) {
+  const n = DATA.size, c = document.createElement('canvas'); c.width = c.height = n;
+  const g = c.getContext('2d'); g.fillStyle = 'rgb(128,128,128)'; g.fillRect(0, 0, n, n);
+  g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
+  const s = n / Math.max(sw, sh), w = Math.round(sw * s), h = Math.round(sh * s);
+  g.drawImage(src, sx, sy, sw, sh, Math.round((n - w) / 2), Math.round((n - h) / 2), w, h);
+  const px = g.getImageData(0, 0, n, n).data, [mean, std] = DATA.mean_std[model], out = new Float32Array(3 * n * n);
+  for (let i = 0; i < n * n; i++) for (let k = 0; k < 3; k++) out[k * n * n + i] = (px[i * 4 + k] / 255 - mean[k]) / std[k];
+  return new ort.Tensor('float32', out, [1, 3, n, n]);
+}
+async function embed(src, box, model) {
+  const r = await sessions[model].run({ pixel_values: input(src, ...box, model) });
+  const t = r.pooler_output || r.last_hidden_state, d = t.dims[t.dims.length - 1];
+  const v = Float32Array.from(t.data.subarray(0, d));            // DINOv2: the first (CLS) token; SigLIP: the pooled vector
+  let s = 0; for (const x of v) s += x * x; s = Math.sqrt(s) || 1;
+  return v.map(x => x / s);
+}
+// Each issue's similarity: the mean of the two models' cosines with its best cover. Ranked by that, and judged by it:
+// studies/phone_confidence.py (2026-11-22, the owner's photos): a match at 0.86 or more and 0.03 ahead of the next
+// issue is right 99% of the time (58% of right answers get there); under 0.80 the comic is most likely not one the
+// scan knows; in between, the first guess is right 74% of the time.
+const SURE = 0.86, LEAD = 0.03, UNKNOWN = 0.80;
+function rank(qs) {
+  const [d0, d1] = DATA.dims, stride = d0 + d1, best = [new Map(), new Map()];
+  [[qs.dino, 0, d0], [qs.siglip, d0, d1]].forEach(([q, off, d], m) => {
+    for (let r = 0; r < rows; r++) {
+      let s = 0; const o = r * stride + off;
+      for (let k = 0; k < d; k++) s += q[k] * VEC[o + k];
+      s /= 127;                                               // the vectors were stored x127 as int8
+      const iss = DATA.covers[r]; if (!(best[m].get(iss) >= s)) best[m].set(iss, s);
+    }
+  });
+  const mean = [...best[0]].map(([iss, s]) => [iss, (s + (best[1].get(iss) ?? s)) / 2]).sort((a, b) => b[1] - a[1]);
+  const top = mean[0][1], lead = top - (mean[1] ? mean[1][1] : 0);
+  return { order: mean.map(([iss]) => iss), sims: new Map(mean), tier: top >= SURE && lead >= LEAD ? 'sure' : top < UNKNOWN ? 'unknown' : 'likely' };
+}
+const pic = (it, cls) => it.img ? `<img src="${it.img}" alt="">` : `<div class="none ${cls || ''}">No picture here</div>`;
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+function ownLine(it) {
+  if (it.own) return `<span class="own have">You have ${it.own}${it.g ? ` · best ${esc(it.g)}${it.ai ? ' (AI)' : ''}` : ' · not graded'}</span>`;
+  return `<span class="own miss">${it.miss ? 'Missing from your collection' : "You don't have it"}</span>`;
+}
+function result({ order, tier }) {
+  const KICK = { sure: 'Match', likely: 'Likely: check the others below', unknown: 'Not recognized: probably not in the series you collect. Closest:' };
+  const show = k => {
+    const it = DATA.issues[order[k]];
+    const alts = order.filter((_, j) => j !== k).slice(0, 4).map(i => [i, DATA.issues[i]]);
+    $('sheet').innerHTML = `<div class="best">${pic(it)}<div><div class="kicker ${k ? '' : tier}">${k ? 'Picked' : KICK[tier]}</div>
+      <div class="title">${esc(it.t)}</div><div class="meta">${esc([it.y, it.p].filter(Boolean).join(' · '))}</div>${ownLine(it)}</div></div>
+      <div class="alts-h">Not it? Other likely issues</div><div class="alts">${alts.map(([i, a]) =>
+        `<button class="alt" type="button" data-k="${order.indexOf(i)}">${pic(a)}<b>${esc(a.t)}</b><span>${a.own ? 'have ' + a.own : 'missing'}</span></button>`).join('')}</div>
+      <button class="again" id="again" type="button">Scan another</button>`;
+    $('sheet').hidden = false;
+    $('sheet').querySelectorAll('.alt').forEach(b => b.addEventListener('click', () => show(Number(b.dataset.k))));
+    $('again').addEventListener('click', () => { $('sheet').hidden = true; status(''); });
+  };
+  show(0);
+}
+async function scanFrom(src, box) {
+  $('shoot').disabled = true; status('Looking…');
+  try {
+    const t0 = performance.now();
+    const qs = { dino: await embed(src, box, 'dino'), siglip: await embed(src, box, 'siglip') };
+    const r = rank(qs);
+    status(`${Math.round(performance.now() - t0)} ms`);
+    window.lastScan = { order: r.order.slice(0, 5).map(i => DATA.issues[i].t), tier: r.tier, top: r.sims.get(r.order[0]) };   // for testing
+    result(r);
+  } catch (e) { status('Could not scan: ' + e.message); }
+  $('shoot').disabled = false;
+}
+// The guide box in the video's own pixels (the video fills the screen, cropped to cover it).
+function boxInVideo() {
+  const v = $('video'), b = $('box').getBoundingClientRect(), e = v.getBoundingClientRect();
+  const s = Math.max(e.width / v.videoWidth, e.height / v.videoHeight), ox = (e.width - v.videoWidth * s) / 2, oy = (e.height - v.videoHeight * s) / 2;
+  return [(b.left - e.left - ox) / s, (b.top - e.top - oy) / s, b.width / s, b.height / s];
+}
+$('shoot').addEventListener('click', () => scanFrom($('video'), boxInVideo()));
+$('file').addEventListener('change', async e => {
+  const f = e.target.files[0]; if (!f) return;
+  const img = new Image(); img.src = URL.createObjectURL(f); await img.decode();
+  scanFrom(img, [0, 0, img.naturalWidth, img.naturalHeight]);
+  e.target.value = '';
+});
+(async () => {
+  let cam = null;
+  try {
+    cam = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false });
+    $('video').srcObject = cam;
+  } catch (e) { status('No camera here (or not allowed): use Choose a photo.'); }
+  try {
+    await ready();
+    $('shoot').disabled = !cam;
+    status(cam ? `Ready · ${DATA.issues.length.toLocaleString()} issues of your runs` : 'Ready: use Choose a photo.');
+  } catch (e) { status('Could not get ready: ' + e.message); }
+})();
+</script>
+</body>
+</html>
