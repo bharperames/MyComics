@@ -44,6 +44,11 @@ video { width: 100%; height: 100%; object-fit: cover; display: block; background
 .own { display: inline-block; margin-top: 8px; padding: 4px 10px; border-radius: 8px; font-weight: 700; font-size: 16px; }
 .own.have { background: var(--ok); color: var(--on-ok); }
 .own.miss { background: var(--well); color: var(--text); border: 1px dashed var(--note); }
+.val { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; margin-top: 8px; }
+.val span { background: var(--well); border-radius: 6px; padding: 2px 6px; font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text); }
+.val small { display: block; font-size: 12px; font-weight: 600; color: var(--note); text-transform: uppercase; letter-spacing: .04em; }
+.val.none, .valfrom { font-size: 13px; color: var(--note); margin-top: 6px; }
+.valfrom { margin-top: 2px; }
 .alts-h { font-size: 15px; font-weight: 700; margin: 16px 0 8px; }
 .alts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .alt { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 5px; font: inherit; color: var(--text); text-align: left; cursor: pointer; }
@@ -164,13 +169,20 @@ function ownLine(it) {
   if (it.own) return `<span class="own have">You have ${it.own}${it.g ? ` · best ${esc(it.g)}${it.ai ? ' (AI)' : ''}` : ' · not graded'}</span>`;
   return `<span class="own miss">${it.miss ? 'Missing from your collection' : "You don't have it"}</span>`;
 }
+// The issue's low / mid / high grade value (Key Collector's, else the median of copies sold in that grade range).
+const money = v => v == null ? '—' : '$' + (v >= 1000 ? Math.round(v).toLocaleString() : (Number.isInteger(v) ? v : v.toFixed(2)));
+function valueLine(it) {
+  if (!it.v) return '<div class="val none">No value yet</div>';
+  return `<div class="val"><span><small>Low</small>${money(it.v[0])}</span><span><small>Mid</small>${money(it.v[1])}</span><span><small>High</small>${money(it.v[2])}</span></div>
+    <div class="valfrom">${it.vf === 'sales' ? 'From sales' : it.vf === 'Key Collector' ? 'Key Collector' : 'Key Collector & sales'}</div>`;
+}
 function result({ order, tier }) {
   const KICK = { sure: 'Match', likely: 'Likely: check the others below', unknown: 'Not recognized: probably not in the catalog. Closest:' };
   const show = k => {
     const it = DATA.issues[order[k]];
     const alts = order.filter((_, j) => j !== k).slice(0, 4).map(i => [i, DATA.issues[i]]);
     $('sheet').innerHTML = `<div class="best">${pic(it, order[k])}<div><div class="kicker ${k ? '' : tier}">${k ? 'Picked' : KICK[tier]}</div>
-      <div class="title">${esc(it.t)}</div><div class="meta">${esc([it.y, it.p].filter(Boolean).join(' · '))}</div>${ownLine(it)}</div></div>
+      <div class="title">${esc(it.t)}</div><div class="meta">${esc([it.y, it.p].filter(Boolean).join(' · '))}</div>${ownLine(it)}${valueLine(it)}</div></div>
       <div class="alts-h">Not it? Other likely issues</div><div class="alts">${alts.map(([i, a]) =>
         `<div class="alt">${pic(a, i)}<button class="pickit" type="button" data-k="${order.indexOf(i)}"><b>${esc(a.t)}</b><span>${a.own ? 'have ' + a.own : a.miss ? 'missing' : "don't have"}</span></button></div>`).join('')}</div>
       <button class="again" id="again" type="button">Scan another</button>`;
