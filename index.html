@@ -52,6 +52,7 @@ main { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr
 .b .img { position: relative; display: block; }
 .copies { position: absolute; top: 6px; right: 6px; padding: 2px 8px; border-radius: 6px; background: var(--ok); color: var(--on-ok); font-size: 14px; font-weight: 800; display: none; }
 body.best-only .copies { display: block; }
+body.best-only .copies[hidden] { display: none; }        /* one copy counted at this grade: no badge */
 .seg { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--field-edge); border-radius: 10px; overflow: hidden; }
 .seg button { font: inherit; font-size: 16px; font-weight: 600; padding: 8px 0; border: 0; background: var(--field); color: var(--text); cursor: pointer; }
 .seg button + button { border-left: 1px solid var(--field-edge); }
@@ -98,11 +99,11 @@ footer { text-align: center; font-size: 14px; color: var(--note); padding: 0 16p
 </header>
 <main id="list"></main>
 <div class="view" id="view" hidden role="dialog" aria-modal="true" aria-label="Cover"><button class="x" id="view-x" type="button" aria-label="Close">✕</button><img id="view-img" alt=""><div class="cap" id="view-cap"></div></div>
-<footer>Pick a series in the menu for just that series (or type it in quotes: <b>"uncle scrooge"</b>). Missing: the issues you lack in the series you collect, by the catalog's scan. Snapshot of the collection, November 23, 2026. Values are each issue's low / mid / high grade: Key Collector's estimate, else the median of copies sold in that grade range (eBay and Heritage, via PriceCharting); grades marked AI are estimates from photos. Hold Have (click it with a mouse) to count only copies of a minimum grade.<span class="ver">Version 2026-11-23 14:03</span></footer>
+<footer>Pick a series in the menu for just that series (or type it in quotes: <b>"uncle scrooge"</b>). Missing: the issues you lack in the series you collect, by the catalog's scan. Snapshot of the collection, November 23, 2026. Values are each issue's low / mid / high grade: Key Collector's estimate, else the median of copies sold in that grade range (eBay and Heritage, via PriceCharting); grades marked AI are estimates from photos. Hold Have (click it with a mouse) to count only copies of a minimum grade.<span class="ver">Version 2026-11-23 14:11</span></footer>
 <script>
 // A Home Screen icon keeps its own saved copy of this page and may never ask for a new one. On opening, ask
 // for version.txt past every cache; when a newer snapshot is published, load it at an address no saved copy has.
-const VERSION = '20261123140325';
+const VERSION = '20261123141123';
 fetch('version.txt?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : VERSION).then(v => {
   v = v.trim();
   if (v && v > VERSION && new URLSearchParams(location.search).get('v') !== v) location.replace(`./?v=${v}${location.hash}`);
@@ -137,7 +138,7 @@ const list = document.getElementById('list'), count = document.getElementById('c
 const esc = s => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 function card(b) {
   const d = document.createElement('article'); d.className = b.own ? 'b' : 'b miss';
-  const badge = b.own && b.group > 1 ? `<span class="copies">×${b.group} copies</span>` : '';
+  const badge = b.own && b.group > 1 ? `<span class="copies"></span>` : '';     // filled in by show(): the copies the view counts
   const img = b.img ? `<a class="img" href="${large(b)}" data-i="${b.i}"><img src="${small(b)}" loading="lazy" decoding="async" alt="${esc(b.t)}${b.own ? `, Book ID #${b.id}` : ', catalog scan'}">${badge}</a>` : `<div class="none">No photo${badge}</div>`;
   const g = !b.own ? '<span class="g gone">Missing</span>' : b.g ? `<span class="g">${b.g.v} ${b.g.l}${b.g.o ? '' : ' · AI'}</span>` : '<span class="g no">Not graded</span>';
   const v = b.$ ? `<div class="v"><span><small>Low</small>${usd(b.$[0])}</span><span><small>Mid</small>${usd(b.$[1])}</span><span><small>High</small>${usd(b.$[2])}</span></div>`
@@ -270,6 +271,8 @@ const gradeOf = b => b.g ? +b.g.v : null;
 const good = b => b.own && (floor == null || gradeOf(b) == null || gradeOf(b) >= floor);
 const low = b => b.own && floor != null && gradeOf(b) != null && gradeOf(b) < floor;
 const firstGood = b => byIssue.get(b.iid).filter(good).sort((x, y) => (gradeOf(y) ?? -1) - (gradeOf(x) ?? -1) || x.id - y.id)[0] === b;
+// The copies of b's issue the current view counts: in Have those at the minimum grade, in Missing those below it.
+const copiesIn = b => { const g = byIssue.get(b.iid) || [b]; return mode === 'have' ? g.filter(good).length : mode === 'missing' ? g.filter(low).length : g.length; };
 const inMode = b => {
   if (!b.own) return mode !== 'have';
   if (mode === 'have') return good(b) && (!onePer || firstGood(b));
@@ -324,7 +327,11 @@ function show() {
   const hits = BOOKS.filter(b => inMode(b) && matches(b));
   shown = hits;
   list.replaceChildren(...hits.map(b => {
-    const d = cardOf(b), g = d.querySelector('.g');
+    const d = cardOf(b), g = d.querySelector('.g'), badge = d.querySelector('.copies');
+    if (badge) {                            // how many copies of the issue the view counts: Have's at its minimum grade
+      const n = copiesIn(b);
+      badge.hidden = n < 2; badge.textContent = `×${n} copies`;
+    }
     if (b.own && b.g) {                     // the grade badge says when a copy is below Have's minimum
       g.classList.toggle('low', low(b));
       g.textContent = `${b.g.v} ${b.g.l}${b.g.o ? '' : ' · AI'}` + (low(b) ? ` · below ${floor.toFixed(1)}` : '');
@@ -340,7 +347,7 @@ function show() {
     const btn = document.getElementById('other-mode');
     if (btn) btn.addEventListener('click', () => { setMode(other); show(); });
   }
-  const have = hits.filter(b => b.own).length, copies = hits.reduce((n, b) => n + (b.own ? (onePer ? b.group : 1) : 0), 0);
+  const have = hits.filter(b => b.own).length, copies = hits.reduce((n, b) => n + (b.own ? (onePer ? copiesIn(b) : 1) : 0), 0);
   const atFloor = floor == null ? '' : ` at ${floor.toFixed(1)} or better`, under = hits.filter(low).length;
   const ungraded = floor == null ? 0 : hits.filter(b => b.own && !b.g).length;
   count.textContent = mode === 'have' ? (onePer ? `${have} issue${have === 1 ? '' : 's'} you have${atFloor}, in ${copies} cop${copies === 1 ? 'y' : 'ies'}` : `${have} comic${have === 1 ? '' : 's'} you have${atFloor}`)
