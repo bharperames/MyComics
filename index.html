@@ -56,6 +56,20 @@ body.best-only .copies { display: block; }
 .seg button { font: inherit; font-size: 16px; font-weight: 600; padding: 8px 0; border: 0; background: var(--field); color: var(--text); cursor: pointer; }
 .seg button + button { border-left: 1px solid var(--field-edge); }
 .seg button[aria-pressed="true"] { background: var(--accent); color: var(--bg); }
+/* Have's minimum grade: long-press (a click with a mouse) opens the menu; the button names the floor. */
+.modes { position: relative; }
+.seg button[data-mode="have"] { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; touch-action: manipulation; }
+.seg button[data-mode="have"] { white-space: nowrap; }
+.seg button[data-mode="have"]::after { content: " ▾"; font-size: 12px; }
+.gmenu { position: absolute; z-index: 5; top: calc(100% + 4px); left: 0; min-width: 220px; background: var(--surface); color: var(--text);
+  border: 1px solid var(--field-edge); border-radius: 12px; box-shadow: 0 8px 24px rgba(0, 0, 0, .35); padding: 6px; }
+.gmenu[hidden] { display: none; }
+.gmenu p { margin: 4px 8px 6px; font-size: 13px; color: var(--note); }
+.gmenu button { display: block; width: 100%; text-align: left; font: inherit; font-size: 16px; padding: 9px 10px; border: 0; border-radius: 8px;
+  background: none; color: var(--text); cursor: pointer; }
+.gmenu button[aria-checked="true"] { background: var(--accent); color: var(--bg); font-weight: 700; }
+.g.low { background: var(--well); color: var(--text); border: 1px dashed var(--note); }
+footer .ver { display: block; margin-top: 6px; }
 footer { text-align: center; font-size: 14px; color: var(--note); padding: 0 16px 24px; }
 /* The cover viewer: on the page, so a Home Screen icon (no Back button) never leaves it. */
 .view { position: fixed; inset: 0; z-index: 10; background: #000; display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -77,16 +91,17 @@ footer { text-align: center; font-size: 14px; color: var(--note); padding: 0 16p
   </div>
   <a class="scanlink" id="scanlink" href="scan.html" hidden>📷 Scan a comic</a>
   <div class="modes"><div class="seg" role="group" aria-label="Show"><button type="button" data-mode="have" aria-pressed="true">Have</button><button type="button" data-mode="missing" aria-pressed="false">Missing</button><button type="button" data-mode="all" aria-pressed="false">All</button></div>
-    <button type="button" class="bestbtn" id="one" aria-pressed="false" title="One card per issue: your best copy, with how many you have">Best copy</button></div>
+    <button type="button" class="bestbtn" id="one" aria-pressed="false" title="One card per issue: your best copy, with how many you have">Best copy</button>
+    <div class="gmenu" id="gmenu" hidden role="menu" aria-label="Count a copy as had at this grade or better"><p>Have: only copies at least</p></div></div>
   <div class="count" id="count" role="status"></div>
 </header>
 <main id="list"></main>
 <div class="view" id="view" hidden role="dialog" aria-modal="true" aria-label="Cover"><button class="x" id="view-x" type="button" aria-label="Close">✕</button><img id="view-img" alt=""><div class="cap" id="view-cap"></div></div>
-<footer>Pick a series in the menu for just that series (or type it in quotes: <b>"uncle scrooge"</b>). Missing: the issues you lack in the series you collect, by the catalog's scan. Snapshot of the collection, November 23, 2026. Values are each issue's low / mid / high grade: Key Collector's estimate, else the median of copies sold in that grade range (eBay and Heritage, via PriceCharting); grades marked AI are estimates from photos.</footer>
+<footer>Pick a series in the menu for just that series (or type it in quotes: <b>"uncle scrooge"</b>). Missing: the issues you lack in the series you collect, by the catalog's scan. Snapshot of the collection, November 23, 2026. Values are each issue's low / mid / high grade: Key Collector's estimate, else the median of copies sold in that grade range (eBay and Heritage, via PriceCharting); grades marked AI are estimates from photos. Hold Have (click it with a mouse) to count only copies of a minimum grade.<span class="ver">Version 2026-11-23 13:47</span></footer>
 <script>
 // A Home Screen icon keeps its own saved copy of this page and may never ask for a new one. On opening, ask
 // for version.txt past every cache; when a newer snapshot is published, load it at an address no saved copy has.
-const VERSION = '20261123133901';
+const VERSION = '20261123134738';
 fetch('version.txt?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : VERSION).then(v => {
   v = v.trim();
   if (v && v > VERSION && new URLSearchParams(location.search).get('v') !== v) location.replace(`./?v=${v}${location.hash}`);
@@ -242,7 +257,21 @@ list.addEventListener('click', e => {
   e.preventDefault();
   openView(BOOKS[Number(a.dataset.i)]);
 });
-const inMode = b => (mode === 'all' || (mode === 'have') === b.own) && (!onePer || !b.own || b.best);
+// Have's minimum grade (null: any). A copy below it doesn't count as had: Have leaves it out, and Missing shows the
+// issue by my best copy when no copy of it reaches the floor. An ungraded copy counts (marked Not graded).
+let floor = null;
+const FLOORS = [[null, 'Any grade'], [2.0, '2.0 GD'], [3.0, '3.0 GD/VG'], [4.0, '4.0 VG'], [5.0, '5.0 VG/FN'], [6.0, '6.0 FN'],
+                [7.0, '7.0 FN/VF'], [8.0, '8.0 VF'], [9.0, '9.0 VF/NM']];
+const gradeOf = b => b.g ? +b.g.v : null;
+const good = b => b.own && (floor == null || gradeOf(b) == null || gradeOf(b) >= floor);
+const low = b => b.own && floor != null && gradeOf(b) != null && gradeOf(b) < floor;
+const firstGood = b => byIssue.get(b.iid).filter(good).sort((x, y) => (gradeOf(y) ?? -1) - (gradeOf(x) ?? -1) || x.id - y.id)[0] === b;
+const inMode = b => {
+  if (!b.own) return mode !== 'have';
+  if (mode === 'have') return good(b) && (!onePer || firstGood(b));
+  if (mode === 'missing') return low(b) && b.best && !byIssue.get(b.iid).some(good);
+  return !onePer || b.best;
+};
 // The Series menu: each series with what it holds in the current view (Have, Missing or All), by name; a book
 // counted as another series (Four Color #456 as Uncle Scrooge #2) is under both. A series mixing Disney and other
 // comics (Four Color) is listed twice: its Disney issues, and all. On the iPhone it opens the picker wheel.
@@ -290,7 +319,14 @@ function show() {
   const matches = b => (!pick || (b.series.has(pick) && fitsOnly(b))) && phrases.every(x => inSeries(b, x)) && words.every(w => fits(b, w));
   const hits = BOOKS.filter(b => inMode(b) && matches(b));
   shown = hits;
-  list.replaceChildren(...hits.map(cardOf));
+  list.replaceChildren(...hits.map(b => {
+    const d = cardOf(b), g = d.querySelector('.g');
+    if (b.own && b.g) {                     // the grade badge says when a copy is below Have's minimum
+      g.classList.toggle('low', low(b));
+      g.textContent = `${b.g.v} ${b.g.l}${b.g.o ? '' : ' · AI'}` + (low(b) ? ` · below ${floor.toFixed(1)}` : '');
+    }
+    return d;
+  }));
   if (!hits.length) {
     // Nothing you have matches: say what the missing issues hold, one tap from showing them (and the reverse).
     const other = mode === 'have' ? 'missing' : mode === 'missing' ? 'have' : null;
@@ -301,12 +337,16 @@ function show() {
     if (btn) btn.addEventListener('click', () => { setMode(other); show(); });
   }
   const have = hits.filter(b => b.own).length, copies = hits.reduce((n, b) => n + (b.own ? (onePer ? b.group : 1) : 0), 0);
-  count.textContent = mode === 'have' ? (onePer ? `${have} issue${have === 1 ? '' : 's'} you have, in ${copies} cop${copies === 1 ? 'y' : 'ies'}` : `${have} comic${have === 1 ? '' : 's'} you have`)
-    : mode === 'missing' ? `${hits.length} missing issue${hits.length === 1 ? '' : 's'}, shown by the catalog's scan`
+  const atFloor = floor == null ? '' : ` at ${floor.toFixed(1)} or better`, under = hits.filter(low).length;
+  const ungraded = floor == null ? 0 : hits.filter(b => b.own && !b.g).length;
+  count.textContent = mode === 'have' ? (onePer ? `${have} issue${have === 1 ? '' : 's'} you have${atFloor}, in ${copies} cop${copies === 1 ? 'y' : 'ies'}` : `${have} comic${have === 1 ? '' : 's'} you have${atFloor}`)
+      + (ungraded ? ` (${ungraded} not graded)` : '')
+    : mode === 'missing' ? `${hits.length - under} missing issue${hits.length - under === 1 ? '' : 's'}, shown by the catalog's scan` + (under ? `, and ${under} you have only below ${floor.toFixed(1)}` : '')
     : `${hits.length} · ${have} you have, ${hits.length - have} missing`;
   const h = new URLSearchParams();
   if (mode !== 'have') h.set('m', mode);
   if (onePer) h.set('one', '1');
+  if (floor != null) h.set('g', floor.toFixed(1));
   if (sel.value) h.set('s', sel.value);
   if (q.value.trim()) h.set('q', q.value.trim());
   try { history.replaceState(history.state, '', h.toString() ? '#' + h : location.pathname); } catch (e) {}
@@ -316,7 +356,41 @@ const oneBtn = document.getElementById('one');
 function setOne(v) { onePer = v; oneBtn.setAttribute('aria-pressed', v ? 'true' : 'false'); document.body.classList.toggle('best-only', v); menu(); }
 oneBtn.addEventListener('click', () => { setOne(!onePer); show(); });
 if (h.get('one') === '1') setOne(true);
-if (h.has('s') || h.has('q') || h.has('m')) {
+// The minimum-grade menu: a long press on Have (a click with a mouse); a tap still just shows Have.
+const haveBtn = modeButtons.find(x => x.dataset.mode === 'have'), gmenu = document.getElementById('gmenu');
+for (const [g, label] of FLOORS) {
+  const it = document.createElement('button');
+  it.type = 'button'; it.setAttribute('role', 'menuitemradio'); it.dataset.g = g == null ? '' : g;
+  it.textContent = g == null ? label : `${label} or better`;
+  it.addEventListener('click', () => { setFloor(g); closeMenu(); setMode('have'); show(); });
+  gmenu.append(it);
+}
+function setFloor(g) {
+  floor = g;
+  haveBtn.textContent = g == null ? 'Have' : `Have ${g}+`;           // whole grades: "Have 6+" fits a phone's button
+  for (const it of gmenu.querySelectorAll('button')) it.setAttribute('aria-checked', String((it.dataset.g === '' ? null : +it.dataset.g) === g));
+  menu();
+}
+function openMenu() { gmenu.hidden = false; (gmenu.querySelector('[aria-checked="true"]') || gmenu.querySelector('button')).focus(); }
+function closeMenu() { gmenu.hidden = true; }
+let press = 0, pressed = false, by = '';           // by: the pointer that pressed Have (mouse, touch, pen)
+haveBtn.addEventListener('pointerdown', e => {
+  pressed = false; by = e.pointerType;
+  if (e.pointerType === 'mouse') return;
+  press = setTimeout(() => { pressed = true; openMenu(); }, 450);
+});
+for (const t of ['pointerup', 'pointercancel', 'pointerleave']) haveBtn.addEventListener(t, () => clearTimeout(press));
+haveBtn.addEventListener('contextmenu', e => e.preventDefault());    // the long press is ours, not the browser's menu
+haveBtn.addEventListener('click', e => {
+  if (pressed) { e.stopImmediatePropagation(); pressed = false; return; }        // the long press opened the menu
+  if (by === 'mouse') {
+    e.stopImmediatePropagation(); setMode('have'); show(); gmenu.hidden ? openMenu() : closeMenu();
+  }
+});
+document.addEventListener('pointerdown', e => { if (!gmenu.hidden && !gmenu.contains(e.target) && e.target !== haveBtn) closeMenu(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !gmenu.hidden) closeMenu(); });
+setFloor(h.has('g') && !isNaN(+h.get('g')) ? +h.get('g') : null);
+if (h.has('s') || h.has('q') || h.has('m') || h.has('g') || h.has('one')) {
   setMode(['missing', 'all'].includes(h.get('m')) ? h.get('m') : 'have');
   // A link to a series the menu does not list opens it as that series typed in quotes.
   const s = h.get('s') || '';
