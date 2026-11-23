@@ -82,11 +82,11 @@ footer { text-align: center; font-size: 14px; color: var(--note); padding: 0 16p
 </header>
 <main id="list"></main>
 <div class="view" id="view" hidden role="dialog" aria-modal="true" aria-label="Cover"><button class="x" id="view-x" type="button" aria-label="Close">✕</button><img id="view-img" alt=""><div class="cap" id="view-cap"></div></div>
-<footer>Pick a series in the menu for just that series (or type it in quotes: <b>"uncle scrooge"</b>). Missing: the issues you lack in the series you collect, by the catalog's scan. Snapshot of the collection, November 22, 2026. Values are the guide's low / mid / high; grades marked AI are estimates from photos.</footer>
+<footer>Pick a series in the menu for just that series (or type it in quotes: <b>"uncle scrooge"</b>). Missing: the issues you lack in the series you collect, by the catalog's scan. Snapshot of the collection, November 23, 2026. Values are the guide's low / mid / high; grades marked AI are estimates from photos.</footer>
 <script>
 // A Home Screen icon keeps its own saved copy of this page and may never ask for a new one. On opening, ask
 // for version.txt past every cache; when a newer snapshot is published, load it at an address no saved copy has.
-const VERSION = '20261122235833';
+const VERSION = '20261123083040';
 fetch('version.txt?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : VERSION).then(v => {
   v = v.trim();
   if (v && v > VERSION && new URLSearchParams(location.search).get('v') !== v) location.replace(`./?v=${v}${location.hash}`);
@@ -132,21 +132,26 @@ function card(b) {
 const cards = new Map();
 const cardOf = b => cards.get(b) || (cards.set(b, card(b)), cards.get(b));
 let shown = [], at = -1, mode = 'have';      // the list on screen, which of it the viewer shows, and Have / Missing / All
-// Tapping a cover opens it here. It closes with the ✕, a tap on it, Esc, or Back (which closes it rather than
+const viewOf = b => ({ src: large(b), alt: b.own ? `${b.t}, Book ID #${b.id}` : `${b.t}, catalog scan`,
+                      cap: b.own ? `${b.t} · Book ID #${b.id}` : `${b.t} · missing · catalog scan` });
+const onDraw = () => {};
+// The cover viewer (shared by the list and the scan). A page defines shown (the covers), viewOf(cover) ->
+// {src, alt, cap} and onDraw(), and opens it with openView(cover). Tapping a cover opens it here. It closes with the ✕, a tap on it, Esc, or Back (which closes it rather than
 // leaving the page: opening pushes one history entry, closing pops it; moving between covers adds none).
 const view = document.getElementById('view'), vimg = document.getElementById('view-img'), vcap = document.getElementById('view-cap');
 function draw() {
   zoomReset();
-  const b = shown[at];
-  vimg.src = large(b); vimg.alt = b.own ? `${b.t}, Book ID #${b.id}` : `${b.t}, catalog scan`;
-  vcap.textContent = (b.own ? `${b.t} · Book ID #${b.id}` : `${b.t} · missing · catalog scan`) + (shown.length > 1 ? ` · ${at + 1} of ${shown.length}` : '');
-  for (const k of [at - 1, at + 1]) if (shown[k]) new Image().src = large(shown[k]);   // the neighbors, ready for a swipe
+  const v = viewOf(shown[at]);
+  vimg.src = v.src; vimg.alt = v.alt;
+  vcap.textContent = v.cap + (shown.length > 1 ? ` · ${at + 1} of ${shown.length}` : '');
+  for (const k of [at - 1, at + 1]) if (shown[k]) new Image().src = viewOf(shown[k]).src;   // the neighbors, ready for a swipe
+  onDraw();
 }
 function openView(b) {
   at = shown.indexOf(b); if (at < 0) { shown = [b]; at = 0; }
   draw();
   view.hidden = false; document.body.style.overflow = 'hidden';
-  try { history.pushState({ view: b.i + 1 }, ''); } catch (e) {}
+  try { history.pushState({ view: 1 }, ''); } catch (e) {}
   document.getElementById('view-x').focus();
 }
 // Next (+1) or previous (-1) cover of the list on screen; stops at either end.
@@ -176,7 +181,7 @@ function zoomAt(s, cx, cy, from) {                 // scale to s keeping the scr
 }
 const mid = () => { const [a, b] = [...pts.values()]; return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, d: Math.hypot(a.x - b.x, a.y - b.y) }; };
 view.addEventListener('pointerdown', e => {
-  if (e.target.id === 'view-x') return;
+  if (e.target.closest('button')) return;         // the viewer's own buttons (close, and a page's extras) are not gestures
   pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
   try { view.setPointerCapture(e.pointerId); } catch (err) { /* keep going without capture */ }
   const m = pts.size === 2 ? mid() : null;

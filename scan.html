@@ -19,8 +19,9 @@ video { width: 100%; height: 100%; object-fit: cover; display: block; background
 /* The guide box: what is scanned. Everything outside it is dimmed. */
 .box { position: absolute; left: 50%; top: 44%; transform: translate(-50%, -50%); width: min(74vw, 58vh * 0.68); aspect-ratio: 0.68;
   border: 3px solid #fff; border-radius: 10px; box-shadow: 0 0 0 100vmax rgba(0, 0, 0, .55); pointer-events: none; }
-.hint { position: absolute; left: 0; right: 0; top: calc(10px + env(safe-area-inset-top)); text-align: center; font-size: 16px; font-weight: 600; padding: 0 70px; }
-.top { position: absolute; top: calc(8px + env(safe-area-inset-top)); left: 12px; }
+/* The hint spans the width over the List link: it must not take its taps. */
+.hint { position: absolute; left: 0; right: 0; top: calc(10px + env(safe-area-inset-top)); text-align: center; font-size: 16px; font-weight: 600; padding: 0 70px; pointer-events: none; }
+.top { position: absolute; top: calc(8px + env(safe-area-inset-top)); left: 12px; z-index: 1; }
 .top a { color: #fff; font-weight: 700; font-size: 16px; display: inline-block; padding: 8px 12px; border-radius: 10px; background: rgba(0, 0, 0, .6); text-decoration: none; }
 .bar { position: absolute; left: 0; right: 0; bottom: calc(16px + env(safe-area-inset-bottom)); display: flex; justify-content: center; align-items: center; gap: 18px; }
 .shoot { width: 76px; height: 76px; border-radius: 50%; border: 5px solid #fff; background: rgba(255, 255, 255, .25); color: #fff; font: 700 15px/1 -apple-system, sans-serif; }
@@ -50,6 +51,22 @@ video { width: 100%; height: 100%; object-fit: cover; display: block; background
 .alt span { display: block; font-size: 12px; color: var(--note); }
 .again { display: block; width: 100%; margin-top: 16px; padding: 12px; border-radius: 10px; border: 0; background: var(--accent); color: var(--bg); font: 700 17px -apple-system, sans-serif; }
 .err { color: var(--text); }
+/* A picture on the result card opens the cover viewer (tap it); the rest of a candidate's card picks it. */
+.zoom { display: block; width: 100%; padding: 0; border: 0; background: none; cursor: zoom-in; border-radius: 6px; }
+.alt { display: flex; flex-direction: column; }
+.alt .pickit { font: inherit; color: var(--text); text-align: left; background: none; border: 0; padding: 0; cursor: pointer; flex: 1; }
+/* The cover viewer: on the page, so a Home Screen icon (no Back button) never leaves it. */
+.view { position: fixed; inset: 0; z-index: 10; background: #000; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+.view[hidden] { display: none; }
+.view { touch-action: none; }          /* the viewer zooms and pans the cover itself; the page never zooms */
+.view img { max-width: 100%; max-height: calc(100% - 56px); object-fit: contain; transform-origin: 50% 50%; will-change: transform; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.view .cap { color: #fff; font-size: 15px; padding: 8px 16px; text-align: center; }
+.view .x { position: absolute; top: calc(10px + env(safe-area-inset-top)); right: calc(10px + env(safe-area-inset-right)); width: 48px; height: 48px;
+  border-radius: 50%; border: 2px solid #fff; background: rgba(0, 0, 0, .7); color: #fff; font: 700 24px/1 -apple-system, sans-serif; cursor: pointer; }
+.view .x:focus-visible { outline: 3px solid #9cc3ff; outline-offset: 2px; }
+.view .use { margin-top: 4px; padding: 10px 22px; border-radius: 10px; border: 2px solid #fff; background: #174a8c; color: #fff; font: 700 17px -apple-system, sans-serif; cursor: pointer; }
+.view .use[hidden] { display: none; }
 </style>
 </head>
 <body>
@@ -62,6 +79,7 @@ video { width: 100%; height: 100%; object-fit: cover; display: block; background
   <button class="shoot" id="shoot" type="button" disabled>Scan</button>
 </div>
 <div class="sheet" id="sheet" hidden role="dialog" aria-label="Scan result"></div>
+<div class="view" id="view" hidden role="dialog" aria-modal="true" aria-label="Cover"><button class="x" id="view-x" type="button" aria-label="Close">✕</button><img id="view-img" alt=""><div class="cap" id="view-cap"></div></div>
 <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/ort.min.js"></script>
 <script>
 // Scan a comic: the phone names the issue from the camera, on its own (no server). The two models (DINOv2-small
@@ -127,7 +145,20 @@ function rank(qs) {
   const top = mean[0][1], lead = top - (mean[1] ? mean[1][1] : 0);
   return { order: mean.map(([iss]) => iss), sims: new Map(mean), tier: top >= SURE && lead >= LEAD ? 'sure' : top < UNKNOWN ? 'unknown' : 'likely' };
 }
-const pic = (it, cls) => it.img ? `<img src="${it.img}" alt="">` : `<div class="none ${cls || ''}">No picture here</div>`;
+const pic = (it, k) => it.img ? `<button class="zoom" type="button" data-z="${k}" aria-label="Enlarge ${esc(it.t)}"><img src="${it.img}" alt=""></button>`
+  : `<div class="none">No picture here</div>`;
+// The viewer shows the result card's issues in its order (the one on top first), my own copy's photo full size.
+let shown = [], at = -1, pickFrom = null;
+const viewOf = k => {
+  const it = DATA.issues[k];
+  return { src: it.img.replace(/^t\//, 'f/'), alt: it.t,
+           cap: [it.t, it.y, it.own ? `you have ${it.own}${it.g ? ', best ' + it.g : ''}` : it.miss ? 'missing' : "you don't have it"].filter(Boolean).join(' · ') };
+};
+const useBtn = document.createElement('button');
+useBtn.className = 'use'; useBtn.type = 'button'; useBtn.textContent = 'This is it';
+document.getElementById('view').append(useBtn);
+const onDraw = () => { useBtn.hidden = !pickFrom || shown[at] === pickFrom.current; };
+useBtn.addEventListener('click', e => { e.stopPropagation(); const k = shown[at]; closeView(); pickFrom.pick(k); });
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 function ownLine(it) {
   if (it.own) return `<span class="own have">You have ${it.own}${it.g ? ` · best ${esc(it.g)}${it.ai ? ' (AI)' : ''}` : ' · not graded'}</span>`;
@@ -138,13 +169,16 @@ function result({ order, tier }) {
   const show = k => {
     const it = DATA.issues[order[k]];
     const alts = order.filter((_, j) => j !== k).slice(0, 4).map(i => [i, DATA.issues[i]]);
-    $('sheet').innerHTML = `<div class="best">${pic(it)}<div><div class="kicker ${k ? '' : tier}">${k ? 'Picked' : KICK[tier]}</div>
+    $('sheet').innerHTML = `<div class="best">${pic(it, order[k])}<div><div class="kicker ${k ? '' : tier}">${k ? 'Picked' : KICK[tier]}</div>
       <div class="title">${esc(it.t)}</div><div class="meta">${esc([it.y, it.p].filter(Boolean).join(' · '))}</div>${ownLine(it)}</div></div>
       <div class="alts-h">Not it? Other likely issues</div><div class="alts">${alts.map(([i, a]) =>
-        `<button class="alt" type="button" data-k="${order.indexOf(i)}">${pic(a)}<b>${esc(a.t)}</b><span>${a.own ? 'have ' + a.own : a.miss ? 'missing' : "don't have"}</span></button>`).join('')}</div>
+        `<div class="alt">${pic(a, i)}<button class="pickit" type="button" data-k="${order.indexOf(i)}"><b>${esc(a.t)}</b><span>${a.own ? 'have ' + a.own : a.miss ? 'missing' : "don't have"}</span></button></div>`).join('')}</div>
       <button class="again" id="again" type="button">Scan another</button>`;
     $('sheet').hidden = false;
-    $('sheet').querySelectorAll('.alt').forEach(b => b.addEventListener('click', () => show(Number(b.dataset.k))));
+    $('sheet').querySelectorAll('.pickit').forEach(b => b.addEventListener('click', () => show(Number(b.dataset.k))));
+    const card = [order[k], ...alts.map(([i]) => i)].filter(i => DATA.issues[i].img);
+    pickFrom = { current: order[k], pick: i => show(order.indexOf(i)) };
+    $('sheet').querySelectorAll('.zoom').forEach(b => b.addEventListener('click', () => { shown = card; openView(Number(b.dataset.z)); }));
     $('again').addEventListener('click', () => { $('sheet').hidden = true; status(''); });
   };
   show(0);
@@ -167,6 +201,106 @@ function boxInVideo() {
   const s = Math.max(e.width / v.videoWidth, e.height / v.videoHeight), ox = (e.width - v.videoWidth * s) / 2, oy = (e.height - v.videoHeight * s) / 2;
   return [(b.left - e.left - ox) / s, (b.top - e.top - oy) / s, b.width / s, b.height / s];
 }
+// The cover viewer (shared by the list and the scan). A page defines shown (the covers), viewOf(cover) ->
+// {src, alt, cap} and onDraw(), and opens it with openView(cover). Tapping a cover opens it here. It closes with the ✕, a tap on it, Esc, or Back (which closes it rather than
+// leaving the page: opening pushes one history entry, closing pops it; moving between covers adds none).
+const view = document.getElementById('view'), vimg = document.getElementById('view-img'), vcap = document.getElementById('view-cap');
+function draw() {
+  zoomReset();
+  const v = viewOf(shown[at]);
+  vimg.src = v.src; vimg.alt = v.alt;
+  vcap.textContent = v.cap + (shown.length > 1 ? ` · ${at + 1} of ${shown.length}` : '');
+  for (const k of [at - 1, at + 1]) if (shown[k]) new Image().src = viewOf(shown[k]).src;   // the neighbors, ready for a swipe
+  onDraw();
+}
+function openView(b) {
+  at = shown.indexOf(b); if (at < 0) { shown = [b]; at = 0; }
+  draw();
+  view.hidden = false; document.body.style.overflow = 'hidden';
+  try { history.pushState({ view: 1 }, ''); } catch (e) {}
+  document.getElementById('view-x').focus();
+}
+// Next (+1) or previous (-1) cover of the list on screen; stops at either end.
+function step(d) {
+  if (view.hidden || !shown[at + d]) return;
+  at += d; draw();
+  vimg.animate([{ opacity: 0, transform: `translateX(${d * 40}px)` }, { opacity: 1, transform: 'none' }], { duration: 220, easing: 'ease-out' });
+}
+// The viewer's own zoom: pinch to zoom (about the fingers), drag to pan while zoomed, double-tap to zoom in on a
+// spot or back out. At normal size a swipe goes to the next or previous cover and a tap closes; zoomed, they pan.
+let zs = 1, zx = 0, zy = 0;                       // scale and offset of the cover
+const pts = new Map();                             // pointers down: id -> {x, y}
+let g0 = null, moved = false, lastTap = 0, swiped = false;
+function apply() {
+  const r = vimg.getBoundingClientRect(), w = r.width / zs, h = r.height / zs;     // the cover's size unzoomed
+  const mx = Math.max(0, (w * zs - innerWidth) / 2 + 20), my = Math.max(0, (h * zs - innerHeight) / 2 + 20);
+  zx = Math.max(-mx, Math.min(mx, zx)); zy = Math.max(-my, Math.min(my, zy));          // never dragged off screen
+  vimg.style.transform = zs > 1.001 ? `translate(${zx}px, ${zy}px) scale(${zs})` : '';
+}
+function zoomReset() { zs = 1; zx = zy = 0; vimg.style.transform = ''; }
+function zoomAt(s, cx, cy, from) {                 // scale to s keeping the screen point (cx, cy) where it was
+  const r = vimg.getBoundingClientRect(), ox = r.left + r.width / 2 - zx, oy = r.top + r.height / 2 - zy;   // the cover's center, unshifted
+  const f = s / from.s;
+  zx = (cx - ox) - (cx - ox - from.x) * f; zy = (cy - oy) - (cy - oy - from.y) * f; zs = s;
+  if (zs <= 1.001) { zs = 1; zx = zy = 0; }
+  apply();
+}
+const mid = () => { const [a, b] = [...pts.values()]; return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, d: Math.hypot(a.x - b.x, a.y - b.y) }; };
+view.addEventListener('pointerdown', e => {
+  if (e.target.closest('button')) return;         // the viewer's own buttons (close, and a page's extras) are not gestures
+  pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  try { view.setPointerCapture(e.pointerId); } catch (err) { /* keep going without capture */ }
+  const m = pts.size === 2 ? mid() : null;
+  g0 = { s: zs, x: zx, y: zy, px: e.clientX, py: e.clientY, m, t: Date.now() };
+  if (pts.size === 1) moved = false;
+});
+view.addEventListener('pointermove', e => {
+  if (!pts.has(e.pointerId) || !g0) return;
+  pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (pts.size === 2 && g0.m) {
+    const m = mid();
+    zoomAt(Math.max(1, Math.min(6, g0.s * m.d / g0.m.d)), m.x, m.y, g0);
+    zx += m.x - g0.m.x; zy += m.y - g0.m.y; apply();
+    moved = true;
+  } else if (pts.size === 1) {
+    const dx = e.clientX - g0.px, dy = e.clientY - g0.py;
+    if (Math.hypot(dx, dy) > 8) moved = true;
+    if (zs > 1) { zx = g0.x + dx; zy = g0.y + dy; apply(); }
+  }
+});
+function up(e) {
+  if (!pts.has(e.pointerId)) return;
+  const start = g0, wasPinch = pts.size === 2;
+  pts.delete(e.pointerId);
+  if (pts.size === 1) {                            // a pinch became a one-finger pan
+    const [p] = pts.values(); g0 = { s: zs, x: zx, y: zy, px: p.x, py: p.y, m: null, t: Date.now() }; return;
+  }
+  if (pts.size || !start || wasPinch) return;
+  const dx = e.clientX - start.px, dy = e.clientY - start.py;
+  if (zs === 1 && Math.abs(dx) > 50 && Math.abs(dx) > 1.5 * Math.abs(dy)) {          // a swipe
+    swiped = true; step(dx < 0 ? 1 : -1); setTimeout(() => { swiped = false; }, 400); return;
+  }
+  if (moved) return;
+  const now = Date.now();
+  if (now - lastTap < 300) {                       // double tap: zoom in on that spot, or back out
+    lastTap = 0; clearTimeout(tapTimer);
+    if (zs > 1) zoomReset(); else zoomAt(2.5, e.clientX, e.clientY, { s: 1, x: 0, y: 0 });
+    return;
+  }
+  lastTap = now;
+  if (zs === 1) tapTimer = setTimeout(() => { if (lastTap === now) closeView(); }, 300);   // a single tap closes (at normal size)
+}
+let tapTimer = 0;
+view.addEventListener('pointerup', up);
+view.addEventListener('pointercancel', e => { pts.delete(e.pointerId); });
+function shut() { view.hidden = true; vimg.removeAttribute('src'); document.body.style.overflow = ''; zoomReset(); }
+function closeView() { if (view.hidden) return; if (history.state && history.state.view) history.back(); else shut(); }
+addEventListener('popstate', () => { if (!view.hidden) shut(); });
+document.getElementById('view-x').addEventListener('click', e => { e.stopPropagation(); closeView(); });
+addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeView();
+  else if (!view.hidden && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) { e.preventDefault(); step(e.key === 'ArrowRight' ? 1 : -1); }
+});
 $('shoot').addEventListener('click', () => scanFrom($('video'), boxInVideo()));
 $('file').addEventListener('change', async e => {
   const f = e.target.files[0]; if (!f) return;
