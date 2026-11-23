@@ -68,6 +68,7 @@ body.best-only .copies { display: block; }
 .gmenu button { display: block; width: 100%; text-align: left; font: inherit; font-size: 16px; padding: 9px 10px; border: 0; border-radius: 8px;
   background: none; color: var(--text); cursor: pointer; }
 .gmenu button[aria-checked="true"] { background: var(--accent); color: var(--bg); font-weight: 700; }
+.bestbtn.go { background: var(--ok); color: var(--on-ok); border-color: var(--ok); margin-top: 10px; }   /* the way to what you searched for */
 .g.low { background: var(--well); color: var(--text); border: 1px dashed var(--note); }
 footer .ver { display: block; margin-top: 6px; }
 footer { text-align: center; font-size: 14px; color: var(--note); padding: 0 16px 24px; }
@@ -97,11 +98,11 @@ footer { text-align: center; font-size: 14px; color: var(--note); padding: 0 16p
 </header>
 <main id="list"></main>
 <div class="view" id="view" hidden role="dialog" aria-modal="true" aria-label="Cover"><button class="x" id="view-x" type="button" aria-label="Close">✕</button><img id="view-img" alt=""><div class="cap" id="view-cap"></div></div>
-<footer>Pick a series in the menu for just that series (or type it in quotes: <b>"uncle scrooge"</b>). Missing: the issues you lack in the series you collect, by the catalog's scan. Snapshot of the collection, November 23, 2026. Values are each issue's low / mid / high grade: Key Collector's estimate, else the median of copies sold in that grade range (eBay and Heritage, via PriceCharting); grades marked AI are estimates from photos. Hold Have (click it with a mouse) to count only copies of a minimum grade.<span class="ver">Version 2026-11-23 13:47</span></footer>
+<footer>Pick a series in the menu for just that series (or type it in quotes: <b>"uncle scrooge"</b>). Missing: the issues you lack in the series you collect, by the catalog's scan. Snapshot of the collection, November 23, 2026. Values are each issue's low / mid / high grade: Key Collector's estimate, else the median of copies sold in that grade range (eBay and Heritage, via PriceCharting); grades marked AI are estimates from photos. Hold Have (click it with a mouse) to count only copies of a minimum grade.<span class="ver">Version 2026-11-23 13:52</span></footer>
 <script>
 // A Home Screen icon keeps its own saved copy of this page and may never ask for a new one. On opening, ask
 // for version.txt past every cache; when a newer snapshot is published, load it at an address no saved copy has.
-const VERSION = '20261123134738';
+const VERSION = '20261123135210';
 fetch('version.txt?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : VERSION).then(v => {
   v = v.trim();
   if (v && v > VERSION && new URLSearchParams(location.search).get('v') !== v) location.replace(`./?v=${v}${location.hash}`);
@@ -332,7 +333,7 @@ function show() {
     const other = mode === 'have' ? 'missing' : mode === 'missing' ? 'have' : null;
     const n = other ? BOOKS.filter(b => (other === 'have') === !!b.own && matches(b)).length : 0;
     list.innerHTML = `<p class="empty">${mode === 'missing' ? 'No missing issues match.' : mode === 'have' ? "None of your comics match." : 'No comics match.'}`
-      + (n ? `<br><button class="bestbtn" type="button" id="other-mode">Show the ${n} ${other === 'missing' ? 'missing issue' + (n === 1 ? '' : 's') : 'comic' + (n === 1 ? '' : 's') + ' you have'} that match</button>` : '') + '</p>';
+      + (n ? `<br><button class="bestbtn go" type="button" id="other-mode">Show the ${n} ${other === 'missing' ? 'missing issue' + (n === 1 ? '' : 's') : 'comic' + (n === 1 ? '' : 's') + ' you have'} that match</button>` : '') + '</p>';
     const btn = document.getElementById('other-mode');
     if (btn) btn.addEventListener('click', () => { setMode(other); show(); });
   }
