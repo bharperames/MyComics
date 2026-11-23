@@ -66,7 +66,7 @@ video { width: 100%; height: 100%; object-fit: cover; display: block; background
 <script>
 // Scan a comic: the phone names the issue from the camera, on its own (no server). The two models (DINOv2-small
 // and SigLIP-base's vision tower, the builds studies/phone_onnx.py measured) come from Hugging Face once and are kept
-// in this phone's cache; scan/ holds every cover of the runs I collect, embedded here with the same builds.
+// in this phone's cache; scan/ holds every indexed catalog cover, embedded here with the same builds.
 const $ = id => document.getElementById(id), status = t => { $('status').textContent = t; };
 ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/';
 let DATA, VEC, sessions = {}, rows;
@@ -134,14 +134,14 @@ function ownLine(it) {
   return `<span class="own miss">${it.miss ? 'Missing from your collection' : "You don't have it"}</span>`;
 }
 function result({ order, tier }) {
-  const KICK = { sure: 'Match', likely: 'Likely: check the others below', unknown: 'Not recognized: probably not in the series you collect. Closest:' };
+  const KICK = { sure: 'Match', likely: 'Likely: check the others below', unknown: 'Not recognized: probably not in the catalog. Closest:' };
   const show = k => {
     const it = DATA.issues[order[k]];
     const alts = order.filter((_, j) => j !== k).slice(0, 4).map(i => [i, DATA.issues[i]]);
     $('sheet').innerHTML = `<div class="best">${pic(it)}<div><div class="kicker ${k ? '' : tier}">${k ? 'Picked' : KICK[tier]}</div>
       <div class="title">${esc(it.t)}</div><div class="meta">${esc([it.y, it.p].filter(Boolean).join(' · '))}</div>${ownLine(it)}</div></div>
       <div class="alts-h">Not it? Other likely issues</div><div class="alts">${alts.map(([i, a]) =>
-        `<button class="alt" type="button" data-k="${order.indexOf(i)}">${pic(a)}<b>${esc(a.t)}</b><span>${a.own ? 'have ' + a.own : 'missing'}</span></button>`).join('')}</div>
+        `<button class="alt" type="button" data-k="${order.indexOf(i)}">${pic(a)}<b>${esc(a.t)}</b><span>${a.own ? 'have ' + a.own : a.miss ? 'missing' : "don't have"}</span></button>`).join('')}</div>
       <button class="again" id="again" type="button">Scan another</button>`;
     $('sheet').hidden = false;
     $('sheet').querySelectorAll('.alt').forEach(b => b.addEventListener('click', () => show(Number(b.dataset.k))));
@@ -183,7 +183,7 @@ $('file').addEventListener('change', async e => {
   try {
     await ready();
     $('shoot').disabled = !cam;
-    status(cam ? `Ready · ${DATA.issues.length.toLocaleString()} issues of your runs` : 'Ready: use Choose a photo.');
+    status(cam ? `Ready · ${DATA.issues.length.toLocaleString()} issues` : 'Ready: use Choose a photo.');
   } catch (e) { status('Could not get ready: ' + e.message); }
 })();
 </script>
