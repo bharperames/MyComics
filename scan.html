@@ -32,6 +32,8 @@ video { width: 100%; height: 100%; object-fit: cover; display: block; background
 /* The result: a sheet over the camera. */
 .sheet { position: fixed; left: 0; right: 0; bottom: 0; max-height: 82vh; overflow-y: auto; background: var(--bg); color: var(--text);
   border-radius: 16px 16px 0 0; padding: 14px 16px calc(18px + env(safe-area-inset-bottom)); box-shadow: 0 -4px 24px rgba(0, 0, 0, .5); }
+.sheet { overscroll-behavior: contain; }
+.sheet::before { content: ""; display: block; width: 40px; height: 5px; border-radius: 3px; background: var(--note); margin: -4px auto 10px; }   /* the handle: it swipes down */
 .sheet[hidden] { display: none; }
 .best { display: grid; grid-template-columns: 112px 1fr; gap: 14px; align-items: start; }
 .best img, .best .none, .alt img, .alt .none { width: 100%; aspect-ratio: 3 / 4; object-fit: contain; background: var(--well); border-radius: 6px; display: block; }
@@ -47,7 +49,11 @@ video { width: 100%; height: 100%; object-fit: cover; display: block; background
 .val { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; margin-top: 8px; }
 .val span { background: var(--well); border-radius: 6px; padding: 2px 6px; font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text); }
 .val small { display: block; font-size: 12px; font-weight: 600; color: var(--note); text-transform: uppercase; letter-spacing: .04em; }
-.val.none { font-size: 13px; color: var(--note); margin-top: 6px; }
+.noval { font-size: 13px; color: var(--note); margin-top: 6px; }   /* not .none: .best .none sizes a missing picture */
+/* Not recognized: said as the answer, the closest covers only offered below it. */
+.nomatch { border: 2px solid var(--text); border-radius: 12px; padding: 12px 14px; background: var(--well); }
+.nomatch .title { margin: 0 0 4px; }
+.nomatch p { margin: 0; font-size: 16px; color: var(--text); }
 .best .buy { display: inline-block; margin-top: 8px; font-size: 15px; font-weight: 700; color: var(--accent); text-decoration: underline; }
 .alts-h { font-size: 15px; font-weight: 700; margin: 16px 0 8px; }
 .alts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
@@ -175,28 +181,54 @@ function ownLine(it) {
 // The issue's low / mid / high grade value (Key Collector's, else the median of copies sold in that grade range).
 const money = v => v == null ? '—' : v < 1 ? 'under $1' : '$' + Math.round(v).toLocaleString();      // whole dollars
 function valueLine(it) {
-  if (!it.v) return '<div class="val none">No value yet</div>';
+  if (!it.v) return '<div class="noval">No value yet</div>';
   return `<div class="val"><span><small>Low</small>${money(it.v[0])}</span><span><small>Mid</small>${money(it.v[1])}</span><span><small>High</small>${money(it.v[2])}</span></div>`;
 }
 function result({ order, tier }) {
-  const KICK = { sure: 'Match', likely: 'Likely: check the others below', unknown: 'Not recognized: probably not in the catalog. Closest:' };
+  const KICK = { sure: 'Match', likely: 'Likely: check the others below' };            // unknown: the .nomatch card
   const show = k => {
-    const it = DATA.issues[order[k]];
-    const alts = order.filter((_, j) => j !== k).slice(0, 4).map(i => [i, DATA.issues[i]]);
-    $('sheet').innerHTML = `<div class="best">${pic(it, order[k])}<div><div class="kicker ${k ? '' : tier}">${k ? 'Picked' : KICK[tier]}</div>
+    const it = DATA.issues[order[k]], none = k === 0 && tier === 'unknown';
+    // Not recognized: no issue is put forward as the answer; the four closest are offered as guesses.
+    const alts = (none ? order.slice(0, 4) : order.filter((_, j) => j !== k).slice(0, 4)).map(i => [i, DATA.issues[i]]);
+    $('sheet').innerHTML = (none ? `<div class="nomatch"><div class="title">Not recognized</div>
+      <p>This cover isn't one the scan knows: most likely a printing the catalog has no picture of. Try again with the cover filling the box, or check the closest covers below.</p></div>
+      <div class="alts-h">Closest covers (probably none of these)</div>` : `<div class="best">${pic(it, order[k])}<div><div class="kicker ${k ? '' : tier}">${k ? 'Picked' : KICK[tier]}</div>
       <div class="title">${esc(it.t)}</div><div class="meta">${esc([it.y, it.p].filter(Boolean).join(' · '))}</div>${ownLine(it)}${valueLine(it)}<a class="buy" href="${esc(ebay(it.t))}" target="_blank" rel="noopener">Find on eBay ↗</a></div></div>
-      <div class="alts-h">Not it? Other likely issues</div><div class="alts">${alts.map(([i, a]) =>
+      <div class="alts-h">Not it? Other likely issues</div>`) + `<div class="alts">${alts.map(([i, a]) =>
         `<div class="alt">${pic(a, i)}<button class="pickit" type="button" data-k="${order.indexOf(i)}"><b>${esc(a.t)}</b><span>${a.own ? 'have ' + a.own : a.miss ? 'missing' : "don't have"}</span></button></div>`).join('')}</div>
       <button class="again" id="again" type="button">Scan another</button>`;
     $('sheet').hidden = false;
     $('sheet').querySelectorAll('.pickit').forEach(b => b.addEventListener('click', () => show(Number(b.dataset.k))));
-    const card = [order[k], ...alts.map(([i]) => i)].filter(i => DATA.issues[i].img);
+    const card = [...new Set([...(none ? [] : [order[k]]), ...alts.map(([i]) => i)])].filter(i => DATA.issues[i].img);
     pickFrom = { current: order[k], pick: i => show(order.indexOf(i)) };
     $('sheet').querySelectorAll('.zoom').forEach(b => b.addEventListener('click', () => { shown = card; openView(Number(b.dataset.z)); }));
-    $('again').addEventListener('click', () => { $('sheet').hidden = true; status(''); });
+    $('again').addEventListener('click', putAway);
   };
   show(0);
 }
+// The result sheet goes away (back to the camera) by Scan another, or by swiping it down from its top: past 100 px, or a
+// quick flick; a shorter drag springs back.
+function putAway() { const sh = $('sheet'); sh.hidden = true; sh.style.transition = sh.style.transform = ''; status(''); }
+(() => {
+  const sh = $('sheet'); let y0 = null, t0 = 0, dy = 0;
+  sh.addEventListener('touchstart', e => {
+    y0 = e.touches.length === 1 && sh.scrollTop <= 0 ? e.touches[0].clientY : null; t0 = e.timeStamp; dy = 0;
+  }, { passive: true });
+  sh.addEventListener('touchmove', e => {
+    if (y0 == null) return;
+    dy = e.touches[0].clientY - y0;
+    if (dy <= 0) { if (dy < -8) { y0 = null; sh.style.transform = ''; } return; }       // scrolling the sheet up: leave it
+    e.preventDefault(); sh.style.transition = 'none'; sh.style.transform = `translateY(${dy}px)`;
+  }, { passive: false });
+  const end = e => {
+    if (y0 == null) return; y0 = null;
+    const flick = dy > 30 && dy / Math.max(1, e.timeStamp - t0) > 0.5;
+    sh.style.transition = 'transform .2s ease-out';
+    if (dy > 100 || flick) { sh.style.transform = 'translateY(100%)'; setTimeout(putAway, 200); }
+    else sh.style.transform = '';
+  };
+  sh.addEventListener('touchend', end); sh.addEventListener('touchcancel', end);
+})();
 async function scanFrom(src, box) {
   $('shoot').disabled = true; status('Looking…');
   try {
