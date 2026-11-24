@@ -48,6 +48,7 @@ video { width: 100%; height: 100%; object-fit: cover; display: block; background
 .val span { background: var(--well); border-radius: 6px; padding: 2px 6px; font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text); }
 .val small { display: block; font-size: 12px; font-weight: 600; color: var(--note); text-transform: uppercase; letter-spacing: .04em; }
 .val.none { font-size: 13px; color: var(--note); margin-top: 6px; }
+.best .buy { display: inline-block; margin-top: 8px; font-size: 15px; font-weight: 700; color: var(--accent); text-decoration: underline; }
 .alts-h { font-size: 15px; font-weight: 700; margin: 16px 0 8px; }
 .alts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .alt { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 5px; font: inherit; color: var(--text); text-align: left; cursor: pointer; }
@@ -69,6 +70,9 @@ video { width: 100%; height: 100%; object-fit: cover; display: block; background
 .view .x { position: absolute; top: calc(10px + env(safe-area-inset-top)); right: calc(10px + env(safe-area-inset-right)); width: 48px; height: 48px;
   border-radius: 50%; border: 2px solid #fff; background: rgba(0, 0, 0, .7); color: #fff; font: 700 24px/1 -apple-system, sans-serif; cursor: pointer; }
 .view .x:focus-visible { outline: 3px solid #9cc3ff; outline-offset: 2px; }
+.view .buy { color: #9cc3ff; font-size: 15px; font-weight: 700; padding: 4px 16px 10px; text-decoration: underline; }
+.view .buy[hidden] { display: none; }
+.view .buy:focus-visible { outline: 3px solid #9cc3ff; outline-offset: 2px; }
 .view .use { margin-top: 4px; padding: 10px 22px; border-radius: 10px; border: 2px solid #fff; background: #174a8c; color: #fff; font: 700 17px -apple-system, sans-serif; cursor: pointer; }
 .view .use[hidden] { display: none; }
 </style>
@@ -83,7 +87,7 @@ video { width: 100%; height: 100%; object-fit: cover; display: block; background
   <button class="shoot" id="shoot" type="button" disabled>Scan</button>
 </div>
 <div class="sheet" id="sheet" hidden role="dialog" aria-label="Scan result"></div>
-<div class="view" id="view" hidden role="dialog" aria-modal="true" aria-label="Cover"><button class="x" id="view-x" type="button" aria-label="Close">✕</button><img id="view-img" alt=""><div class="cap" id="view-cap"></div></div>
+<div class="view" id="view" hidden role="dialog" aria-modal="true" aria-label="Cover"><button class="x" id="view-x" type="button" aria-label="Close">✕</button><img id="view-img" alt=""><div class="cap" id="view-cap"></div><a class="buy" id="view-buy" target="_blank" rel="noopener">Find on eBay ↗</a></div>
 <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/ort.min.js"></script>
 <script>
 // Scan a comic: the phone names the issue from the camera, on its own (no server). The two models (DINOv2-small
@@ -155,7 +159,7 @@ const pic = (it, k) => it.img ? `<button class="zoom" type="button" data-z="${k}
 let shown = [], at = -1, pickFrom = null;
 const viewOf = k => {
   const it = DATA.issues[k];
-  return { src: it.img.replace(/^t\//, 'f/'), alt: it.t,
+  return { src: it.img.replace(/^t\//, 'f/'), alt: it.t, buy: ebay(it.t),
            cap: [it.t, it.y, it.own ? `you have ${it.own}${it.g ? ', best ' + it.g : ''}` : it.miss ? 'missing' : "you don't have it"].filter(Boolean).join(' · ') };
 };
 const useBtn = document.createElement('button');
@@ -180,7 +184,7 @@ function result({ order, tier }) {
     const it = DATA.issues[order[k]];
     const alts = order.filter((_, j) => j !== k).slice(0, 4).map(i => [i, DATA.issues[i]]);
     $('sheet').innerHTML = `<div class="best">${pic(it, order[k])}<div><div class="kicker ${k ? '' : tier}">${k ? 'Picked' : KICK[tier]}</div>
-      <div class="title">${esc(it.t)}</div><div class="meta">${esc([it.y, it.p].filter(Boolean).join(' · '))}</div>${ownLine(it)}${valueLine(it)}</div></div>
+      <div class="title">${esc(it.t)}</div><div class="meta">${esc([it.y, it.p].filter(Boolean).join(' · '))}</div>${ownLine(it)}${valueLine(it)}<a class="buy" href="${esc(ebay(it.t))}" target="_blank" rel="noopener">Find on eBay ↗</a></div></div>
       <div class="alts-h">Not it? Other likely issues</div><div class="alts">${alts.map(([i, a]) =>
         `<div class="alt">${pic(a, i)}<button class="pickit" type="button" data-k="${order.indexOf(i)}"><b>${esc(a.t)}</b><span>${a.own ? 'have ' + a.own : a.miss ? 'missing' : "don't have"}</span></button></div>`).join('')}</div>
       <button class="again" id="again" type="button">Scan another</button>`;
@@ -214,12 +218,20 @@ function boxInVideo() {
 // The cover viewer (shared by the list and the scan). A page defines shown (the covers), viewOf(cover) ->
 // {src, alt, cap} and onDraw(), and opens it with openView(cover). Tapping a cover opens it here. It closes with the ✕, a tap on it, Esc, or Back (which closes it rather than
 // leaving the page: opening pushes one history entry, closing pops it; moving between covers adds none).
-const view = document.getElementById('view'), vimg = document.getElementById('view-img'), vcap = document.getElementById('view-cap');
+const view = document.getElementById('view'), vimg = document.getElementById('view-img'), vcap = document.getElementById('view-cap'), vbuy = document.getElementById('view-buy');
+// eBay's listing search (auctions and Buy It Now, in Comic Books & Memorabilia) for a title like "Classics Illustrated #1 [HRN 36]":
+// the series and the number, without the printing mark (web/catalog.py ebay_query, the same words).
+function ebay(t) {
+  if (!t || t.startsWith('Not identified')) return '';
+  const q = t.replace(/\s*\[[^\]]*\]$/, '').replace(/\s#(?=[^#]*$)/, ' ');
+  return 'https://www.ebay.com/sch/i.html?_sacat=63&_nkw=' + encodeURIComponent(q);
+}
 function draw() {
   zoomReset();
   const v = viewOf(shown[at]);
   vimg.src = v.src; vimg.alt = v.alt;
   vcap.textContent = v.cap + (shown.length > 1 ? ` · ${at + 1} of ${shown.length}` : '');
+  vbuy.hidden = !v.buy; if (v.buy) vbuy.href = v.buy;
   for (const k of [at - 1, at + 1]) if (shown[k]) new Image().src = viewOf(shown[k]).src;   // the neighbors, ready for a swipe
   onDraw();
 }
@@ -237,7 +249,8 @@ function step(d) {
   vimg.animate([{ opacity: 0, transform: `translateX(${d * 40}px)` }, { opacity: 1, transform: 'none' }], { duration: 220, easing: 'ease-out' });
 }
 // The viewer's own zoom: pinch to zoom (about the fingers), drag to pan while zoomed, double-tap to zoom in on a
-// spot or back out. At normal size a swipe goes to the next or previous cover and a tap closes; zoomed, they pan.
+// spot or back out. At normal size a swipe sideways goes to the next or previous cover, a swipe down closes and a tap
+// closes; zoomed, they pan.
 let zs = 1, zx = 0, zy = 0;                       // scale and offset of the cover
 const pts = new Map();                             // pointers down: id -> {x, y}
 let g0 = null, moved = false, lastTap = 0, swiped = false;
@@ -257,7 +270,7 @@ function zoomAt(s, cx, cy, from) {                 // scale to s keeping the scr
 }
 const mid = () => { const [a, b] = [...pts.values()]; return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, d: Math.hypot(a.x - b.x, a.y - b.y) }; };
 view.addEventListener('pointerdown', e => {
-  if (e.target.closest('button')) return;         // the viewer's own buttons (close, and a page's extras) are not gestures
+  if (e.target.closest('button, a')) return;      // the viewer's own buttons and link (close, eBay, a page's extras) are not gestures
   pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
   try { view.setPointerCapture(e.pointerId); } catch (err) { /* keep going without capture */ }
   const m = pts.size === 2 ? mid() : null;
@@ -276,6 +289,9 @@ view.addEventListener('pointermove', e => {
     const dx = e.clientX - g0.px, dy = e.clientY - g0.py;
     if (Math.hypot(dx, dy) > 8) moved = true;
     if (zs > 1) { zx = g0.x + dx; zy = g0.y + dy; apply(); }
+    else if (dy > 0 && dy > Math.abs(dx)) {        // pulled down at normal size: the cover follows, the black thins
+      vimg.style.transform = `translateY(${dy}px)`; view.style.background = `rgba(0, 0, 0, ${Math.max(.3, 1 - dy / 400)})`;
+    }
   }
 });
 function up(e) {
@@ -287,6 +303,10 @@ function up(e) {
   }
   if (pts.size || !start || wasPinch) return;
   const dx = e.clientX - start.px, dy = e.clientY - start.py;
+  if (zs === 1 && vimg.style.transform) {          // a pull down: far or fast enough closes, else the cover goes back
+    if (dy > 100 || (dy > 40 && dy / (Date.now() - start.t) > .5)) { closeView(); return; }
+    pullBack(); if (moved) return;
+  }
   if (zs === 1 && Math.abs(dx) > 50 && Math.abs(dx) > 1.5 * Math.abs(dy)) {          // a swipe
     swiped = true; step(dx < 0 ? 1 : -1); setTimeout(() => { swiped = false; }, 400); return;
   }
@@ -302,8 +322,12 @@ function up(e) {
 }
 let tapTimer = 0;
 view.addEventListener('pointerup', up);
-view.addEventListener('pointercancel', e => { pts.delete(e.pointerId); });
-function shut() { view.hidden = true; vimg.removeAttribute('src'); document.body.style.overflow = ''; zoomReset(); }
+view.addEventListener('pointercancel', e => { pts.delete(e.pointerId); if (zs === 1) pullBack(); });
+function pullBack() {
+  vimg.animate([{ transform: vimg.style.transform }, { transform: 'none' }], { duration: 180, easing: 'ease-out' });
+  vimg.style.transform = ''; view.style.background = '';
+}
+function shut() { view.hidden = true; vimg.removeAttribute('src'); view.style.background = ''; document.body.style.overflow = ''; zoomReset(); }
 function closeView() { if (view.hidden) return; if (history.state && history.state.view) history.back(); else shut(); }
 addEventListener('popstate', () => { if (!view.hidden) shut(); });
 document.getElementById('view-x').addEventListener('click', e => { e.stopPropagation(); closeView(); });
