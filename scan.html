@@ -86,7 +86,7 @@ video { width: 100%; height: 100%; object-fit: cover; display: block; background
 <body>
 <div class="cam"><video id="video" playsinline muted autoplay></video><div class="box" id="box"></div></div>
 <div class="top"><a href="./">‹ List</a></div>
-<div class="hint">Fill the box with the cover, then tap Scan</div>
+<div class="hint">Fit the whole cover inside the box, then tap Scan</div>
 <div class="status" id="status" role="status">Getting ready…</div>
 <div class="bar">
   <label class="pick">Choose a photo<input type="file" id="file" accept="image/*"></label>
@@ -191,7 +191,7 @@ function result({ order, tier }) {
     // Not recognized: no issue is put forward as the answer; the four closest are offered as guesses.
     const alts = (none ? order.slice(0, 4) : order.filter((_, j) => j !== k).slice(0, 4)).map(i => [i, DATA.issues[i]]);
     $('sheet').innerHTML = (none ? `<div class="nomatch"><div class="title">Not recognized</div>
-      <p>This cover isn't one the scan knows: most likely a printing the catalog has no picture of. Try again with the cover filling the box, or check the closest covers below.</p></div>
+      <p>This cover isn't one the scan knows: most likely a printing the catalog has no picture of. If the cover ran past the white box, step back until all of it is inside and scan again; or check the closest covers below.</p></div>
       <div class="alts-h">Closest covers (probably none of these)</div>` : `<div class="best">${pic(it, order[k])}<div><div class="kicker ${k ? '' : tier}">${k ? 'Picked' : KICK[tier]}</div>
       <div class="title">${esc(it.t)}</div><div class="meta">${esc([it.y, it.p].filter(Boolean).join(' · '))}</div>${ownLine(it)}${valueLine(it)}<a class="buy" href="${esc(ebay(it.t))}" target="_blank" rel="noopener">Find on eBay ↗</a></div></div>
       <div class="alts-h">Not it? Other likely issues</div>`) + `<div class="alts">${alts.map(([i, a]) =>
