@@ -229,14 +229,48 @@ function putAway() { const sh = $('sheet'); sh.hidden = true; sh.style.transitio
   };
   sh.addEventListener('touchend', end); sh.addEventListener('touchcancel', end);
 })();
+// The comic's edges (scan/edges.js, OpenCV.js): the comic is found in the picture and flattened before it is named, as
+// ingest does. studies/phone_edges.py (2026-11-24, 416 owned fronts): first guess 86% -> 91% from a guide-box shot,
+// 80% -> 90% from a library photo; "sure" answers 24% -> 70% and 6% -> 67%, still right over 99% of the time. Loaded
+// after the models (10 MB, cached by the browser); until then, or when no comic-shaped outline is found, the picture
+// is named as it is.
+let CV = null;
+function loadEdges(v) {
+  const add = src => new Promise((ok, bad) => { const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = bad; document.head.append(s); });
+  return add('https://cdn.jsdelivr.net/npm/@techstark/opencv-js@4.10.0-release.1/dist/opencv.js')
+    .then(() => add('scan/edges.js?v=' + v))
+    // OpenCV.js's module is thenable (Emscripten's Module.then): resolving a promise with it, or awaiting it, unwraps it
+    // forever and hangs the page (2026-11-25). Wait for it to be ready, then keep it, never passing it to a promise.
+    .then(() => new Promise(ok => {
+      const c = window.cv, done = m => { CV = m; ok(); };
+      if (c && c.Mat) return done(c);
+      const t = setInterval(() => { if (c && c.Mat) { clearInterval(t); done(c); } }, 100);
+      if (c) c.onRuntimeInitialized = () => { clearInterval(t); done(c); };
+    }))
+    .catch(() => { CV = null; });
+}
+const EDGE_LONG = 1600;              // px, long side the edges are found at (the study's query pictures)
+function region(src, box) {          // the scanned area as a canvas, at most EDGE_LONG on its long side
+  const [sx, sy, sw, sh] = box, s = Math.min(1, EDGE_LONG / Math.max(sw, sh)), c = document.createElement('canvas');
+  c.width = Math.round(sw * s); c.height = Math.round(sh * s);
+  const g = c.getContext('2d'); g.imageSmoothingQuality = 'high'; g.drawImage(src, sx, sy, sw, sh, 0, 0, c.width, c.height);
+  return c;
+}
 async function scanFrom(src, box) {
   $('shoot').disabled = true; status('Looking…');
   try {
     const t0 = performance.now();
+    let edges = false;
+    if (CV && window.ScanEdges) {
+      try {
+        const area = region(src, box), q = ScanEdges.find(CV, area);
+        if (q) { const flat = ScanEdges.flatten(CV, area, q); src = flat; box = [0, 0, flat.width, flat.height]; edges = true; }
+      } catch (e) { /* named as it is */ }
+    }
     const qs = { dino: await embed(src, box, 'dino'), siglip: await embed(src, box, 'siglip') };
     const r = rank(qs);
-    status(`${Math.round(performance.now() - t0)} ms`);
-    window.lastScan = { order: r.order.slice(0, 5).map(i => DATA.issues[i].t), tier: r.tier, top: r.sims.get(r.order[0]) };   // for testing
+    status(`${Math.round(performance.now() - t0)} ms${edges ? '' : ' · edges not found'}`);
+    window.lastScan = { order: r.order.slice(0, 5).map(i => DATA.issues[i].t), tier: r.tier, top: r.sims.get(r.order[0]), edges };   // for testing
     result(r);
   } catch (e) { status('Could not scan: ' + e.message); }
   $('shoot').disabled = false;
@@ -382,6 +416,7 @@ $('file').addEventListener('change', async e => {
   } catch (e) { status('No camera here (or not allowed): use Choose a photo.'); }
   try {
     await ready();
+    loadEdges(new URLSearchParams(location.search).get('v') || '');
     $('shoot').disabled = !cam;
     status(cam ? `Ready · ${DATA.issues.length.toLocaleString()} issues` : 'Ready: use Choose a photo.');
   } catch (e) { status('Could not get ready: ' + e.message); }
